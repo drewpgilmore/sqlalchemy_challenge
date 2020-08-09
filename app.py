@@ -1,9 +1,9 @@
 import numpy as np
-
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
 from sqlalchemy.orm import Session
 from sqlalchemy import create_engine, func
+import datetime as dt
 
 from flask import Flask, jsonify
 
@@ -15,7 +15,6 @@ Base.prepare(engine, reflect=True)
 Measurement = Base.classes.measurement
 Station = Base.classes.station
 
-
 #################################
 #initiate flask and define routes
 app = Flask(__name__)
@@ -26,8 +25,8 @@ def home():
        f'/api/v1.0/precipitation<br/>'
        f'/api/v1.0/stations<br/>'
        f'/api/v1.0/tobs<br/>'
-       f'/api/v1.0/<start><br/>'
-       f'/api/v1.0/<start>/<end><br/>'
+       f'/api/v1.0/2012-05-01<br/>'
+       f'/api/v1.0/2012-05-01/2012-06-01<br/>'
     )
 
 @app.route("/api/v1.0/precipitation")
@@ -64,33 +63,60 @@ def stations():
 #Return a JSON list of temperature observations (TOBS) for the previous year.
 def temps():
     session = Session(engine)
-    results = session.query()
-
-
-
-    last_date = hawaii_data['Date'].max()
-    start_date = last_date - dt.timedelta(days=365)
-    prev_year = hawaii_data[hawaii_data['Date'] > start_date].reset_index()
-    prev_year_dict = prev_year['Temp'].to_dict()
-    return jsonify(prev_year_dict)
+    results = session.query(Measurement.date, Measurement.tobs).all()
+    session.close()
+    end_date = dt.datetime.strptime(results[-1][0], '%Y-%m-%d')
+    start_date = end_date - dt.timedelta(days=365)
+    last_year = session.query(Measurement.date, Measurement.tobs).\
+        filter(Measurement.date > start_date).all()
+    dates = [date[0] for date in last_year]
+    temps = [date[1] for date in last_year]
+    last_year_dict = {date:temp for date,temp in zip(dates,temps)}
+    return jsonify(last_year_dict)
 
 @app.route("/api/v1.0/<start>") 
 def get_temps(start):
+    session = Session(engine)
+    results = session.query(Measurement.date, Measurement.tobs).all()
+    session.close()
     start_date = dt.datetime.strptime(start, '%Y-%m-%d')
-    timeframe = hawaii_data[hawaii_data['Date'] > start_date].reset_index()
-    min_temp = timeframe['Temp'].min()
-    max_temp = timeframe['Temp'].max()
-    avg_temp = timeframe['Temp'].mean()
+    min_temp = session.query(func.min(Measurement.tobs)).\
+        filter(Measurement.date >= start_date).all()[0][0]
+    max_temp = session.query(func.max(Measurement.tobs)).\
+        filter(Measurement.date >= start_date).all()[0][0]
+    avg_temp = session.query(func.avg(Measurement.tobs)).\
+        filter(Measurement.date >= start_date).all()[0][0]
+    
     return (
-        f'{start}<br/>'
         f'Min Temp: {min_temp}<br/>'
         f'Max Temp: {max_temp}<br/>'
-        f'Avg Temp: {avg_temp}<br/>'
-    ) """
+        f'Average Temp: {round(avg_temp, 2)}'
+    )
+    
+@app.route("/api/v1.0/<start>/<end>") 
+def trip_temps(start,end):
+    session = Session(engine)
+    results = session.query(Measurement.date, Measurement.tobs).all()
+    session.close()
+    start_date = dt.datetime.strptime(start, '%Y-%m-%d')
+    end_date = dt.datetime.strptime(end, '%Y-%m-%d')
+    min_temp = session.query(func.min(Measurement.tobs)).\
+        filter(Measurement.date >= start_date).\
+        filter(Measurement.date <= end_date).\
+        all()[0][0]
+    max_temp = session.query(func.max(Measurement.tobs)).\
+        filter(Measurement.date >= start_date).\
+        filter(Measurement.date <= end_date).\
+        all()[0][0]
+    avg_temp = session.query(func.avg(Measurement.tobs)).\
+        filter(Measurement.date >= start_date).\
+        filter(Measurement.date <= end_date).\
+        all()[0][0]
+    return (
+        f'Min Temp: {min_temp}<br/>'
+        f'Max Temp: {max_temp}<br/>'
+        f'Average Temp: {round(avg_temp, 2)}'
+    )
 
-#@app.route("/api/v1.0/<start>/<end>")
-#Return a JSON list of the minimum temperature, the average temperature, and the max temperature for a given start or start-end range.
-#When given the start only, calculate TMIN, TAVG, and TMAX for all dates greater than and equal to the start date.
-#When given the start and the end date, calculate the TMIN, TAVG, and TMAX for dates between the start and end date inclusive.
 if __name__ == "__main__":
     app.run(debug=True)
